@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# 笔记运行时产物（保留示例笔记）
+backend/notebooks/*
+!backend/notebooks/示例笔记.md
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# 环境变量（勿把密钥提交进仓库）
+.env
+
+# 执行器临时工作目录（EXEC_TMP_DIR）
+exec-tmp/
+.tmp/
+
+# 项目内依赖目录（pip --target .deps 产物）
+backend/.deps/
+
+# 打包产物与中间物（PyInstaller / 发布 zip）
+build/
+dist/
+frontend/vendor/

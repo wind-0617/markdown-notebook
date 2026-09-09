@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Markdown 可执行笔记工具</title>
+
+  <!-- 资源基址：由后端在响应 `/` 时把 __ASSET_BASE__ 替换为 "/vendor"（打包/离线）
+       或 CDN 域名（开发态）。直接以文件方式打开时占位符保留，JS 自动回退 CDN。 -->
+  <script>
+    window.ASSET_BASE = "__ASSET_BASE__";
+    window.assetBase = function () {
+      var b = window.ASSET_BASE;
+      return (b && b.indexOf("__") === -1) ? b : "https://cdn.jsdelivr.net";
+    };
+  </script>
+
+  <!-- highlight.js 样式：随主题切换（FR-04），默认深色 -->
+  <link id="hljs-theme" rel="stylesheet"
+        href="__ASSET_BASE__/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css" />
+  <script src="__ASSET_BASE__/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+
+  <!-- marked：浏览器端 Markdown 即时渲染（FR-02） -->
+  <script src="__ASSET_BASE__/npm/marked@12.0.0/marked.min.js"></script>
+
+  <!-- Monaco Editor 加载器（FR-01） -->
+  <script src="__ASSET_BASE__/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+
+<body>
+
+  <!-- ============ 顶部工具栏 ============ -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">📓</span>
+      <span class="name">可执行笔记</span>
+      <span class="ver">v0.2</span>
+    </div>
+
+    <button id="btn-new"  class="btn btn-sm" title="新建笔记">＋ 新建</button>
+    <button id="btn-save" class="btn btn-sm" title="保存 (Ctrl+S)">💾 保存</button>
+    <button id="btn-autosave" class="btn btn-sm btn-toggle" aria-pressed="false"
+            title="每 10 秒自动保存一次">自动保存</button>
+
+    <div class="tb-sep"></div>
+
+    <!-- 两个运行按钮之间用分隔线隔开，防误触（优化文档·三.3） -->
+    <button id="btn-run" class="btn btn-primary btn-sm" title="执行光标处的代码块 (Shift+Enter)">▶ 运行当前块</button>
+    <div class="tb-sep"></div>
+    <button id="btn-run-all" class="btn btn-sm" title="依次执行全部代码块（每块独立进程，无共享变量）">≫ 运行全部</button>
+
+    <div class="tb-sep"></div>
+
+    <!-- 三段布局切换，当前项高亮（优化文档·二.3） -->
+    <div class="seg" id="seg-layout" role="group" aria-label="布局切换">
+      <button data-layout="editor"  title="仅编辑器">编辑</button>
+      <button data-layout="split"   class="active" title="左编辑右预览（推荐）">分栏</button>
+      <button data-layout="preview" title="仅预览">预览</button>
+    </div>
+
+    <div class="tb-spacer"></div>
+    <span id="status-tip">就绪</span>
+    <button id="btn-theme" class="btn btn-icon" title="切换深色/浅色主题">☀️</button>
+  </header>
+
+  <!-- ============ 主体工作区 ============ -->
+  <div class="workspace" id="workspace" data-layout="split">
+
+    <!-- 左：笔记 / AI 双页签侧栏（优化文档·三.1） -->
+    <aside class="sidebar">
+      <div class="side-tabs">
+        <button class="side-tab active" id="tab-notes" data-tab="notes">📁 笔记</button>
+        <button class="side-tab" id="tab-ai" data-tab="ai">🤖 AI</button>
+      </div>
+
+      <!-- 页签一：笔记列表 -->
+      <div class="side-page" id="page-notes">
+        <ul id="note-list"></ul>
+        <div class="side-foot">
+          <div class="storage">存储于 backend/notebooks/ · 标准 .md 格式</div>
+          <div class="exec-badge local" id="exec-badge"></div>
+        </div>
+      </div>
+
+      <!-- 页签二：AI 助手（FR-11） -->
+      <div class="side-page hidden" id="page-ai">
+        <div class="ai-head">
+          <span class="title">AI 笔记助手</span>
+          <button id="btn-ai-clear" class="btn btn-icon btn-sm" title="清空对话">🧹</button>
+          <button id="btn-ai-settings" class="btn btn-icon btn-sm" title="配置 API 服务">⚙️</button>
+        </div>
+        <div id="ai-need-key" class="hidden">
+          请先配置 API Key 以使用 AI 助手 —— <u>点击此处打开设置</u>
+        </div>
+        <div id="ai-messages">
+          <div class="ai-hint">我可以总结笔记、润色文字、解释或生成代码。<br/>回答会引用你当前打开的笔记作为上下文。</div>
+        </div>
+        <div class="ai-input-box">
+          <textarea id="ai-input" rows="3" placeholder="输入问题，Enter 发送…"></textarea>
+          <div class="ai-actions">
+            <button id="btn-ai-send" class="btn btn-primary btn-sm" style="flex:1">发送</button>
+            <button id="btn-ai-summarize" class="btn btn-sm" title="总结当前笔记">总结</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 中：标签栏 + Monaco 编辑器（FR-01） -->
+    <section class="editor-stack" id="editor-pane">
+      <div class="tabbar">
+        <span class="file-tab" id="file-tab" title="">
+          <span>📄</span>
+          <span class="t-name" id="file-tab-name">未命名</span>
+          <i class="dirty-dot hidden" id="file-tab-dirty">●</i>
+        </span>
+        <span class="indep-tip">ⓘ 每个代码块独立执行，不共享变量</span>
+      </div>
+      <div id="editor"></div>
+    </section>
+
+    <!-- 右：实时预览 + 执行结果（FR-02/03/07） -->
+    <section class="preview-pane" id="preview-pane">
+      <div id="preview" class="markdown-body"></div>
+    </section>
+  </div>
+
+  <!-- ============ AI 设置弹窗（优化文档·二.1 / 五.1） ============ -->
+  <div class="modal-backdrop hidden" id="ai-modal">
+    <div class="modal-card">
+      <header>
+        <span>⚙️</span><span>AI 服务配置</span>
+        <button class="x" id="btn-ai-close-modal" title="关闭">✕</button>
+      </header>
+      <div class="modal-body">
+        <div class="field">
+          <label>服务地址（OpenAI 兼容 Base URL）</label>
+          <input id="ai-base" type="text" placeholder="https://api.deepseek.com/v1" />
+          <div class="hint">DeepSeek：https://api.deepseek.com/v1 ｜ OpenAI：https://api.openai.com/v1 ｜ Ollama：http://localhost:11434/v1</div>
+        </div>
+        <div class="field">
+          <label>模型名</label>
+          <input id="ai-model" type="text" placeholder="deepseek-chat / gpt-4o-mini / qwen2.5" />
+        </div>
+        <div class="field">
+          <label>API Key</label>
+          <input id="ai-key" type="password" placeholder="sk-…" autocomplete="off" />
+          <div class="hint">仅保存在本浏览器 localStorage，由本机后端代理调用，不会上传第三方。（本地 Ollama 可留空）</div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-sm danger" id="btn-ai-clearcfg">清除已存配置</button>
+        <button class="btn btn-sm" id="btn-ai-cancel">取消</button>
+        <button class="btn btn-sm btn-primary" id="btn-ai-savecfg">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 底部状态栏（优化文档·三.2：语言由代码块围栏决定，此处不再列语言） ============ -->
+  <footer class="statusbar">
+    <span id="status-file">未命名.md</span>
+    <span class="dirty" id="status-dirty"></span>
+    <span class="dot">·</span>
+    <span id="status-lines">行 1，列 1</span>
+    <div class="spacer"></div>
+    <span id="status-ai">AI：未配置</span>
+    <span class="dot">·</span>
+    <span id="status-executor">执行器：local</span>
+    <span class="dot">·</span>
+    <span><kbd>Shift+Enter</kbd> 运行 <kbd>Ctrl+S</kbd> 保存</span>
+  </footer>
+
+  <!-- 应用脚本（顺序加载，全局挂载到 window.App） -->
+  <script src="/js/editor.js"></script>
+  <script src="/js/controls.js"></script>
+  <script src="/js/preview.js"></script>
+  <script src="/js/executor.js"></script>
+  <script src="/js/ai-panel.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

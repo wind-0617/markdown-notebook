@@ -1,0 +1,72 @@
+name: Build Windows EXE Release
+
+# 推送形如 v1.0.0 的 tag 时自动：Windows runner 构建 → 无头冒烟测试 → 发布 zip 到 Release
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: pip install -r backend/requirements.txt "pyinstaller>=6,<7"
+
+      - name: Mirror frontend assets (offline vendor)
+        run: python tools/fetch_assets.py
+
+      - name: PyInstaller build
+        run: pyinstaller --noconfirm --clean markdown-notebook.spec
+
+      - name: Smoke test the packaged exe (headless)
+        shell: pwsh
+        run: |
+          $env:NO_BROWSER = "1"
+          $env:PORT = "5111"
+          Start-Process -FilePath "$PWD\dist\markdown-notebook.exe" -WindowStyle Hidden
+          $health = $null
+          for ($i = 0; $i -lt 40; $i++) {
+            Start-Sleep -Seconds 1
+            try {
+              $health = Invoke-RestMethod -Uri "http://127.0.0.1:5111/api/health" -TimeoutSec 3
+              break
+            } catch { }
+          }
+          if (-not $health) { throw "打包 exe 未在 40s 内就绪" }
+          Write-Host ("health: " + ($health | ConvertTo-Json -Compress))
+          if (-not $health.frozen) { throw "frozen 标志应为 true" }
+          # 首页占位符必须被重写（不允许 __ASSET_BASE__ 泄漏到产物页面）
+          $page = (Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:5111/").Content
+          if ($page -match "__ASSET_BASE__") { throw "index.html 占位符未被替换" }
+          # 离线资产必须可取
+          Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:5111/vendor/npm/marked@12.0.0/marked.min.js" -OutFile "$env:TEMP\marked.js" | Out-Null
+          # 端到端执行链：exe 内的执行器需找到本机 python 跑 print(6*7)
+          # （注意：/api/execute 响应即结果对象本身，stdout/exit_code 在顶层）
+          $exec = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5111/api/execute" `
+            -ContentType "application/json" `
+            -Body (@{ language = "python"; code = "print(6*7)" } | ConvertTo-Json)
+          Write-Host ("exec stdout: " + $exec.stdout.Trim())
+          if ($exec.stdout.Trim() -ne "42" -or $exec.exit_code -ne 0) { throw "代码执行链路失败" }
+          Stop-Process -Name markdown-notebook -Force -ErrorAction SilentlyContinue
+
+      - name: Package zip
+        run: python tools/package_dist.py
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/markdown-notebook-windows-x64.zip
+          generate_release_notes: true
+          body: |
+            Windows x64 单文件版（免安装 Python）。解压后双击 `markdown-notebook.exe` 即可。
+            运行 Python 代码块需要本机装有 Python（详见压缩包内《使用说明.txt》）。
+            上传资产为 `dist/` 里的 zip，若 CI 冒烟未通过则该 tag 不会有产物。

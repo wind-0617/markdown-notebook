@@ -1,0 +1,14 @@
+# Markdown 可执行笔记工具 —— 后端依赖
+flask>=3.0
+flask-cors>=4.0            # 可选：仅跨域分离部署时需要，未装不影响运行
+
+# Markdown 渲染与语法高亮
+Markdown>=3.5
+Pygments>=2.17
+
+# AI 服务（OpenAI 兼容 API 调用）——可选：未装则 AI 助手返回“未启用”
+requests>=2.31
+
+# Git 同步（FR-12，阶段三）——可选：未装则 Git 接口返回引导性错误
+GitPython>=3.1
+

@@ -1,0 +1,38 @@
+# =============================================================================
+# 生产/联调编排：Web 应用 + Docker 沙箱执行
+#
+# 使用前先构建沙箱镜像：
+#   docker build -t markdown-notebook-sandbox:latest docker/
+# 启动：
+#   cd docker && docker compose up --build
+# 访问：http://127.0.0.1:5000
+# =============================================================================
+services:
+  app:
+    image: python:3.11-slim
+    container_name: markdown-notebook-app
+    working_dir: /app/backend
+    volumes:
+      - ../backend:/app/backend
+      - ../frontend:/app/frontend
+      # 笔记数据落宿主机器，容器重建不丢失
+      - ../backend/notebooks:/app/backend/notebooks
+      # ⚠️ 让 app 容器能调度 Docker 沙箱（挂 socket 意味着容器内进程可控制宿主
+      #    Docker，生产环境应改用特权代理或 gVisor/Firecracker 等强隔离方案）
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      HOST: 0.0.0.0
+      PORT: "5000"
+      FLASK_DEBUG: "0"
+      EXECUTOR_MODE: docker            # 生产：沙箱执行
+      DOCKER_SANDBOX_IMAGE: markdown-notebook-sandbox:latest
+      EXEC_TIMEOUT: "30"
+      # AI 助手（可选）：
+      # AI_BASE_URL: https://api.deepseek.com/v1
+      # AI_API_KEY: sk-xxx
+      # AI_MODEL: deepseek-chat
+    ports:
+      - "5000:5000"
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements.txt && python app.py"
+    restart: unless-stopped

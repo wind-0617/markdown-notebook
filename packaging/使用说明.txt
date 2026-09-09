@@ -1,0 +1,50 @@
+════════════════════════════════════════════════════════
+  Markdown 可执行笔记工具 · Windows 免安装版 使用说明
+════════════════════════════════════════════════════════
+
+■ 这是什么
+  单文件桌面级笔记工具：Markdown 笔记中直接嵌代码块，浏览器里一键运行、
+  拖滑块调参、结果写回文档。标准 .md 存储，无数据库、无厂商锁定。
+
+■ 快速开始（3 步）
+  1. 解压本 zip 到任意目录（建议纯英文路径，如 D:\notebook\）
+  2. 双击 markdown-notebook.exe
+     → 会弹出一个黑色控制台窗口（这是服务本体，请保持开着）
+     → 约 1~3 秒后自动打开浏览器 http://127.0.0.1:5000
+  3. 开始使用；关闭控制台窗口即停止服务
+
+■ 运行 Python 代码块的前提
+  本 exe 出于体积考虑未内置 Python 解释器。要运行 Python 代码块，
+  三选一：
+    a) 安装任意 Python 3.x 并勾选 "Add Python to PATH"（推荐，
+       执行时自动隔离运行，不会污染你的环境）
+    b) 设置环境变量 NB_PYTHON 指向 python.exe 的完整路径
+    c) 只跑 JavaScript（需 Node.js）/ Shell 代码块，或改用
+       Docker 沙箱模式（见下），则无需本机 Python
+
+■ 数据在哪里
+  · 笔记保存在 exe 同级的 notebooks\ 目录（标准 .md 文件）
+  · 换目录/换电脑 = 整个文件夹拷走即可
+  · 想指定别的位置：新建环境变量 NOTEBOOKS_DIR=D:\我的笔记 后重启
+  · 端口被占用时：设环境变量 PORT=5001 后重启
+
+■ Docker 沙箱模式（可选进阶）
+  安装 Docker Desktop 后，先构建镜像（需源码仓库 docker/ 目录）：
+      docker build -t markdown-notebook-sandbox:latest .
+  再以环境变量启动 exe：
+      set EXECUTOR_MODE=docker && markdown-notebook.exe
+  此模式代码在断网只读容器中执行，打开陌生笔记时更安全。
+
+■ 常见问题
+  Q: 双击后闪退/浏览器没开？
+  A: 看控制台窗口的报错。端口被占就设 PORT；浏览器没自动开就手动访问
+     控制台里显示的地址。SmartScreen 拦截时点「更多信息→仍要运行」。
+  Q: 杀软报毒？
+  A: PyInstaller 单文件 exe 的常见误报（无签名的自解压行为）。
+     本产物由 GitHub Actions 公开构建（见 Release 页 workflow 日志），
+     源码完全开放，可自行 clone 后运行 build.bat 重 builds 验证。
+  Q: 想开机自启 / 常驻服务？
+  A: 把 exe 快捷方式放入 shell:startup，或任务计划程序登录时运行。
+
+■ 版本与许可
+  构建时间/版本：见 Release 页对应 tag 的 changelog。MIT License。
