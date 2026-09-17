@@ -1,0 +1,254 @@
+===== 项目指令：Markdown 可执行笔记工具（v3） =====
+
+一、项目简介
+你正在协助开发一个基于 Web 的 Markdown 可执行笔记工具。
+用户可以编写 Markdown，在文档中嵌入可执行代码块，点击运行并直接查看结果。
+目标：类似 Jupyter 的交互式编程笔记，但笔记以标准 .md 文件存储，保持可移植性。
+最终功能：代码执行、交互式参数、AI 辅助写作、Git 同步、全文检索、多语言支持、界面优化。
+
+二、架构原则：前后端分离
+本项目必须采用前后端分离架构。
+前端：独立项目，负责所有界面、交互、路由、状态管理。
+后端：Flask 只提供 RESTful API，只返回 JSON，不渲染 HTML 页面，不负责页面跳转。
+前后端通过 HTTP API 通信，接口契约保持稳定。
+开发环境：前端使用 Vite 开发服务器，后端 Flask 运行 API 服务。
+生产环境：前端构建为静态文件，由 Nginx 托管；后端用 Gunicorn 运行；Nginx 反向代理 /api 到后端。
+禁止：在 Flask 中写 render_template 返回页面；在前端直接拼接后端 URL；把业务逻辑写在前端。
+
+三、技术栈
+后端：Python 3.11+、Flask、Flask-CORS、subprocess（代码执行）、Whoosh（全文检索）
+前端：Vite + 原生 JavaScript（ES Modules）或 Vue 3、Tailwind CSS、Monaco Editor
+通信：RESTful API + JSON
+AI 集成：OpenAI 兼容 API，如 DeepSeek、GPT
+存储：本地文件系统，笔记保存在 backend/notebooks/ 下的 .md 文件
+版本控制：Git
+
+四、推荐项目结构
+markdown-notebook/
+  backend/
+    app.py                  Flask 应用入口，仅注册 API 蓝图
+    config.py               配置，如 CORS、超时、API Key
+    routes/                 API 路由
+      render_routes.py
+      execute_routes.py
+      search_routes.py
+      ai_routes.py
+      note_routes.py
+    services/               业务服务
+      search_service.py
+      ai_service.py
+      git_service.py
+      note_service.py
+    executors/              代码执行器
+      __init__.py
+      base.py
+      python_executor.py
+      js_executor.py
+      shell_executor.py
+      java_executor.py
+      go_executor.py
+    parsers/
+      markdown_parser.py
+      param_parser.py
+    notebooks/              笔记存储目录
+  frontend/
+    package.json
+    vite.config.js
+    index.html
+    src/
+      main.js
+      api/                  API 封装
+        client.js
+        notes.js
+        execute.js
+        search.js
+        ai.js
+      components/            UI 组件
+        Sidebar.js
+        Editor.js
+        Preview.js
+        SearchPanel.js
+        AIPanel.js
+        StatusBar.js
+        Toast.js
+      styles/
+        main.css
+        markdown.css
+      utils/
+        debounce.js
+        shortcuts.js
+  docs/
+    dev_log.md              开发日志
+
+五、前后端职责边界
+前端负责：
+- 页面布局、组件渲染、用户交互
+- Monaco Editor 初始化与内容管理
+- 调用 API，处理加载、成功、失败状态
+- 搜索框、结果高亮、AI 面板、笔记列表
+- 界面优化、主题、响应式、快捷键
+
+后端负责：
+- Markdown 渲染 API
+- 代码执行 API
+- 搜索索引与查询 API
+- AI 对话 API
+- 笔记文件读写 API
+- 环境检查 API
+- 安全限制、超时、资源控制
+
+六、API 契约
+统一响应格式：
+成功：{ "success": true, "data": ..., "error": null }
+失败：{ "success": false, "data": null, "error": { "code": "ERROR_CODE", "message": "错误说明" } }
+
+核心接口：
+POST /api/render              Markdown 转 HTML
+POST /api/execute             执行代码，参数：code, language, timeout
+GET  /api/search?q=关键词      搜索笔记
+POST /api/search/rebuild      重建搜索索引
+GET  /api/environment/check?lang=java  检查语言环境
+POST /api/ai/chat             AI 对话，参数：question, context
+GET  /api/notes               获取笔记列表
+GET  /api/notes/<path>        获取笔记内容
+POST /api/notes               新建笔记
+PUT  /api/notes/<path>        保存笔记
+DELETE /api/notes/<path>      删除笔记
+
+前端必须通过 src/api/ 下的封装调用接口，不得在组件中直接写 fetch 地址。
+API 基础地址使用环境变量：VITE_API_BASE_URL。
+开发环境可在 vite.config.js 中配置代理，把 /api 代理到 http://127.0.0.1:5000。
+
+七、界面优化要求
+总体目标：清爽、专业、低干扰、反馈及时。
+布局：
+- 左侧边栏使用 Tab 切换：笔记、搜索、AI。
+- 中间为编辑器，右侧为预览，支持分栏和全屏切换。
+- 底部状态栏显示：保存状态、光标位置、执行器状态、耗时。
+视觉：
+- 统一颜色、间距、圆角、阴影。
+- 支持深色/浅色主题切换。
+- 代码块、搜索结果、错误提示样式统一。
+交互：
+- 代码运行按钮：点击后显示“运行中...”，禁用按钮，完成后恢复并显示耗时。
+- 搜索输入：防抖 300ms，显示加载状态，无结果时显示空状态。
+- AI 未配置 API Key：输入框置灰，显示引导入口，不允许发送。
+- 所有错误用 Toast 提示，不阻塞界面。
+- 危险操作，如运行全部、删除笔记，需要二次确认。
+可访问性：
+- 支持键盘快捷键，如 Ctrl+S 保存、Ctrl+K 搜索、Shift+Enter 运行。
+- 焦点可见，按钮有 aria-label。
+响应式：
+- 小屏时侧边栏可折叠，编辑器与预览可切换显示。
+
+八、当前已实现功能
+- Markdown 编辑与实时预览
+- 代码块执行：Python、JavaScript、Shell
+- AI 助手面板，需配置 API Key
+- 笔记列表与文件保存
+- 底部状态栏
+- 基本界面布局：左侧边栏、编辑区、预览区
+
+九、当前开发目标（按优先级）
+1. 前后端分离改造：
+   - 前端迁移到 Vite 项目结构。
+   - 后端只保留 /api 路由，移除页面渲染。
+   - 配置 CORS 或 Vite 代理。
+2. 界面优化：
+   - 左侧边栏改为 Tab：笔记、搜索、AI。
+   - AI 未配置 Key 时给出配置入口和引导。
+   - 代码运行增加加载状态、禁用重复点击、显示耗时。
+   - 底部状态栏精简，移除全局语言下拉，改为显示当前代码块语言。
+   - 搜索结果高亮关键词。
+3. 检索功能：
+   - 使用 Whoosh 实现全文检索。
+   - 搜索范围：文件名、正文、一级标题。
+   - 结果展示：标题、高亮片段、修改时间。
+   - 点击结果打开对应笔记。
+   - 保存笔记时自动更新索引。
+4. 多语言执行器：
+   - 抽象 BaseExecutor 和工厂模式。
+   - 迁移 Python、JavaScript、Shell。
+   - 新增 Java、Go 执行器。
+   - 前端从代码块标记提取语言并传递。
+   - 提供环境检查接口，未安装时给出安装引导。
+5. 安全加固：
+   - 代码执行增加超时和资源限制。
+   - 评估 Docker 沙箱。
+   - 界面增加安全提示。
+
+十、编码规范
+Python：PEP8，类型注解，模块化，避免全局状态。
+JavaScript：ES6+，模块化，避免全局变量，组件职责单一。
+API：RESTful 风格，统一 JSON 格式，错误码清晰。
+命名：文件名小写下划线，类名大驼峰，函数小驼峰。
+注释：关键逻辑写中文注释，公共函数写文档字符串。
+前端样式：优先使用 Tailwind CSS 类，复杂样式写独立 CSS。
+组件：每个组件只负责一个功能，状态提升到父级或使用轻量状态管理。
+
+十一、安全要求
+代码执行必须在受限环境中运行，必须设置超时，默认 30 秒，和资源限制。
+禁止执行未知来源代码，界面上需有安全提示。
+API Key 通过环境变量或用户配置，不得硬编码。
+生产环境建议使用 Docker 沙箱隔离代码执行。
+CORS 生产环境使用白名单，不得长期开放 *。
+
+十二、开发日志记录要求（新增）
+每次由 AI 协助完成一个功能、修复一个 Bug 或做出重要技术决策后，必须生成一条开发日志。
+日志统一追加到项目根目录下的 docs/dev_log.md 文件中。
+日志格式如下：
+
+## [日期] 标题
+- 问题描述：简要说明遇到的问题或需求。
+- 原因分析：分析问题产生的原因。
+- 解决方案：描述具体的解决方法和实现思路。
+- 涉及文件：列出修改或新增的文件路径。
+- 备注：可选，记录遗留问题、后续优化点或参考链接。
+
+示例：
+
+## [2026-09-17] 修复 AI 未配置 API Key 时的交互问题
+- 问题描述：用户未配置 API Key 时，输入问题后仅提示“缺少 API Key”，没有引导入口。
+- 原因分析：前端未对 AI 配置状态做前置检查，错误提示不够友好。
+- 解决方案：在 AI 面板增加设置入口，未配置时置灰输入框并显示引导文字。
+- 涉及文件：frontend/src/components/AIPanel.js、frontend/src/api/ai.js
+- 备注：后续可增加 API Key 本地加密存储。
+
+要求：
+- AI 在每次输出代码或方案后，附上一段符合上述格式的日志内容，方便用户直接追加到 docs/dev_log.md。
+- 日志语言使用中文，简洁明了，重点记录“问题”和“解决方案”。
+- 如果本次任务没有明显问题，可记录为“功能实现”或“优化记录”。
+- 日志应包含日期，日期以当前对话日期为准。
+
+十三、给 AI 助手的指令
+- 你是资深全栈开发助手，熟悉 Flask、Vite、JavaScript、Monaco Editor、Tailwind CSS 和代码执行安全。
+- 生成代码时必须明确文件路径，并标注属于 frontend 还是 backend。
+- 前端代码必须通过 src/api/ 调用后端，不得硬编码接口地址。
+- 后端代码只返回 JSON，不得返回 HTML 页面。
+- 修改界面时，先说明布局调整思路，再给出具体组件和 Tailwind 类。
+- 优先推荐简单、稳定、易维护的方案。
+- 涉及安全风险必须明确提醒。
+- 输出格式：先简要说明思路，再给出代码，最后说明测试方法，并附上开发日志。
+- 遇到不确定的依赖或 API，先给出两种备选方案并说明优缺点。
+- 每次完成任务后，必须按“十二、开发日志记录要求”生成一条日志。
+
+十四、任务优先级（AI 应优先协助）
+1. 完成前后端分离改造：Vite 前端 + Flask API 后端。
+2. 实现 SearchService 和搜索 API。
+3. 重构执行器为 BaseExecutor 工厂模式，迁移 Python/JS/Shell。
+4. 新增 Java、Go 执行器，并实现 check_environment。
+5. 前端集成搜索框、结果高亮、语言环境检查。
+6. 界面优化：Tab 侧边栏、运行加载状态、AI 配置引导、Toast、主题。
+7. 代码执行增加超时与资源限制，评估 Docker 沙箱。
+8. 持续维护 docs/dev_log.md，记录开发过程中的问题与解决方案。
+
+十五、注意事项
+- 笔记文件为 .md 格式，必须保持可移植性。
+- 所有功能按阶段推进，先 MVP 再优化。
+- 保持向后兼容，重构时确保原有 Python/JS/Shell 功能不受影响。
+- 每完成一个功能，更新 README 和 API 文档。
+- 界面优化不要牺牲性能，Monaco Editor 可懒加载。
+- 前后端分离后，前端可独立部署，后端可独立扩展。
+- 开发日志必须真实记录问题与解决过程，便于后续回顾和知识沉淀。
+
+===== 结束 =====

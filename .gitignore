@@ -29,3 +29,12 @@ backend/.deps/
 build/
 dist/
 frontend/vendor/
+
+# 前端工程（Vite）
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Whoosh 全文检索索引（运行时生成）
+backend/.search_index/
+.search_index/

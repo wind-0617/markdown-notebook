@@ -7,6 +7,8 @@ from .base import BaseExecutor, ExecutionResult, get_executor, register, support
 from . import python_executor  # noqa: F401,E402
 from . import js_executor  # noqa: F401,E402
 from . import shell_executor  # noqa: F401,E402
+from . import java_executor  # noqa: F401,E402
+from . import go_executor  # noqa: F401,E402
 
 __all__ = [
     "BaseExecutor",

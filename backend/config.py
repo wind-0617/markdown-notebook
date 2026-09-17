@@ -1,7 +1,7 @@
 """全局配置：全部支持环境变量覆盖，便于本地开发与 Docker 部署共用。
 
 冻结（PyInstaller 打包）感知：
-  - 只读资源（frontend/、vendor 资产）从 sys._MEIPASS 解包目录解析
+  - 只读资源（frontend/dist，Vite 构建产物）从 sys._MEIPASS 解包目录解析
   - 可写数据（notebooks/）放在 exe 同级目录，升级/重打包不丢笔记
 """
 from __future__ import annotations
@@ -38,17 +38,28 @@ class Config:
     DEBUG = os.environ.get("FLASK_DEBUG", "0" if FROZEN else "1") == "1"
 
     # 目录
-    FRONTEND_DIR = (
-        os.path.join(BUNDLE_DIR, "frontend") if FROZEN
-        else os.path.join(PROJECT_ROOT, "frontend")
+    FRONTEND_DIST_DIR = (
+        os.path.join(BUNDLE_DIR, "frontend") if FROZEN        # 打包：内置的 Vite 构建产物
+        else os.path.join(PROJECT_ROOT, "frontend", "dist")   # 开发：npm run build 产物
     )
     NOTEBOOKS_DIR = os.environ.get(
         "NOTEBOOKS_DIR",
         os.path.join(APP_DIR, "notebooks") if FROZEN
         else os.path.join(BACKEND_DIR, "notebooks"),
     )
-    # 前端资源加载：auto=检测到 frontend/vendor 则离线本地化，否则走 CDN
-    ASSET_MODE = os.environ.get("ASSET_MODE", "auto").lower()  # auto | local | cdn
+    # 全文检索索引（Whoosh）。必须可写：冻结态放 exe 同级，不能放 _MEIPASS 只读区
+    SEARCH_INDEX_DIR = os.environ.get(
+        "SEARCH_INDEX_DIR",
+        os.path.join(APP_DIR, ".search_index") if FROZEN
+        else os.path.join(BACKEND_DIR, ".search_index"),
+    )
+    SEARCH_MAX_RESULTS = _int("SEARCH_MAX_RESULTS", 30)
+
+    # CORS：默认同源即够（Vite dev 代理不产生跨域）。
+    # 仅当显式提供白名单才开启跨域，禁止长期 "*"（安全要求·十一）。
+    CORS_ORIGINS = [
+        o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()
+    ]
 
     # 代码执行（NFR-01 安全 / NFR-02 性能）
     #   local  : 本机 subprocess（开发默认）

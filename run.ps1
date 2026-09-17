@@ -1,7 +1,8 @@
 ﻿#Requires -Version 5.0
 <#
-  run.ps1 —— Windows 一键启动脚本（配合 优化文档/启动脚本.txt·方案二）
+  run.ps1 —— Windows 一键启动脚本（v0.3：前后端分离 + Vite 构建）
   自动完成：检测 Python → 建虚拟环境（失败自动回退 backend\.deps）→ 装依赖
+            → 构建前端（npm install + vite build，产物 frontend\dist）
             → 启动 Flask → 等待就绪 → 打开浏览器 → 挂起至 Ctrl+C
 
   用法：
@@ -96,7 +97,25 @@ if ($useVenv) {
     Write-Host "📦 backend\.deps 已存在，跳过安装"
 }
 
-# ---------- 4. 启动后端 ----------
+# ---------- 4. 前端构建（Vite → frontend\dist） ----------
+$distIndex = Join-Path $PSScriptRoot 'frontend\dist\index.html'
+if (-not (Test-Path $distIndex)) {
+    $npm = Get-Command npm -ErrorAction SilentlyContinue
+    if ($npm) {
+        Write-Host "🔨 首次构建前端（npm install + vite build，约 1~2 分钟）..."
+        Push-Location (Join-Path $PSScriptRoot 'frontend')
+        if (-not (Test-Path 'node_modules')) { & $npm.Source install --no-audit --no-fund }
+        & $npm.Source run build
+        Pop-Location
+    } else {
+        Write-Host "⚠️ 未检测到 npm（Node.js），跳过前端构建——页面将提示未构建，API 仍可用。" -ForegroundColor Yellow
+        Write-Host "   安装 Node 18+ 后重跑本脚本；或手动：cd frontend; npm install; npm run build"
+    }
+} else {
+    Write-Host "🔨 前端产物已存在（frontend\dist），跳过构建"
+}
+
+# ---------- 5. 启动后端 ----------
 if (-not $env:FLASK_DEBUG) { $env:FLASK_DEBUG = '0' }   # 单进程模式，Ctrl+C 可干净终止
 $env:HOST = $bindHost
 $env:PORT = $port
@@ -106,7 +125,7 @@ $proc = Start-Process -FilePath $pyRun -ArgumentList 'app.py' `
         -PassThru -WindowStyle Hidden
 Write-Host "   服务 PID = $($proc.Id)"
 
-# ---------- 5. 轮询就绪（最多 15s）→ 开浏览器 ----------
+# ---------- 6. 轮询就绪（最多 15s）→ 开浏览器 ----------
 $ready = $false
 for ($i = 0; $i -lt 30; $i++) {
     Start-Sleep -Milliseconds 500
@@ -127,7 +146,7 @@ if ($ready) {
     Write-Host "⏳ 就绪探测超时，服务可能仍在启动，请稍后手动访问 $url" -ForegroundColor Yellow
 }
 
-# ---------- 6. 挂起等待，Ctrl+C 连带停止服务 ----------
+# ---------- 7. 挂起等待，Ctrl+C 连带停止服务 ----------
 Write-Host "✔ 完成。关闭此窗口或按 Ctrl+C 可用 `.\run.ps1 -Stop` 停止服务。"
 try {
     while (-not $proc.HasExited) { Start-Sleep -Milliseconds 500 }

@@ -30,6 +30,8 @@ _COMMENT_PREFIX = {
     "python": "#",
     "shell": "#",
     "javascript": "//",
+    "java": "//",
+    "go": "//",
 }
 
 

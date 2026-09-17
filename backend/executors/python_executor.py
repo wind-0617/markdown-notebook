@@ -17,8 +17,11 @@ import sys
 from .base import BaseExecutor, register
 
 
-def _resolve_interpreter() -> str:
-    """返回可用的 python 解释器路径；找不到时抛 FileNotFoundError。"""
+def resolve_interpreter_path() -> str:
+    """返回可用的 python 解释器路径；找不到时抛 FileNotFoundError。
+
+    公开函数：也被 services/environment.py 的环境探测复用。
+    """
     if not getattr(sys, "frozen", False):
         return sys.executable
 
@@ -55,7 +58,7 @@ class PythonExecutor(BaseExecutor):
     file_ext = ".py"
 
     def build_command(self, script_path: str) -> list[str]:
-        return [_resolve_interpreter(), "-I", "-E", "-B", script_path]
+        return [resolve_interpreter_path(), "-I", "-E", "-B", script_path]
 
 
 register(PythonExecutor())

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# run.sh —— Linux/macOS 一键启动（对应 启动脚本.txt·方案一，含增强）
+# run.sh —— Linux/macOS 一键启动（v0.3：前后端分离 + Vite 构建）
 # 自动完成：定位 Python → 建虚拟环境（失败回退 backend/.deps）→ 装依赖
+#           → 构建前端（npm run build → frontend/dist）
 #           → 启动 Flask → 轮询就绪 → 打开浏览器 → Ctrl+C 终止
 #
 # 用法：chmod +x run.sh && ./run.sh
@@ -76,6 +77,20 @@ else
   else
     echo "📦 backend/.deps 已存在，跳过安装"
   fi
+fi
+
+# ---------- 前端构建（Vite → frontend/dist） ----------
+if [ ! -f "frontend/dist/index.html" ]; then
+  if command -v npm >/dev/null 2>&1; then
+    echo "🔨 首次构建前端（npm install + vite build，约 1~2 分钟）..."
+    ( cd frontend && [ -d node_modules ] || npm install --no-audit --no-fund )
+    ( cd frontend && npm run build )
+  else
+    echo "⚠️ 未检测到 npm（Node.js），跳过前端构建——页面将提示未构建，API 仍可用。"
+    echo "   安装 Node 18+ 后重跑本脚本；或手动：cd frontend && npm install && npm run build"
+  fi
+else
+  echo "🔨 前端产物已存在（frontend/dist），跳过构建"
 fi
 
 # ---------- 启动后端（后台） ----------

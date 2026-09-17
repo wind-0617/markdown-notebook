@@ -1,6 +1,7 @@
 name: Build Windows EXE Release
 
-# 推送形如 v1.0.0 的 tag 时自动：Windows runner 构建 → 无头冒烟测试 → 发布 zip 到 Release
+# 推送形如 v1.0.0 的 tag 时自动：
+# Vite 构建前端 → Windows runner 打 exe → 无头冒烟测试 → 发布 zip 到 Release
 on:
   push:
     tags:
@@ -15,15 +16,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+      - name: Build frontend (Vite)
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
       - name: Install build dependencies
         run: pip install -r backend/requirements.txt "pyinstaller>=6,<7"
-
-      - name: Mirror frontend assets (offline vendor)
-        run: python tools/fetch_assets.py
 
       - name: PyInstaller build
         run: pyinstaller --noconfirm --clean markdown-notebook.spec
@@ -43,20 +53,24 @@ jobs:
             } catch { }
           }
           if (-not $health) { throw "打包 exe 未在 40s 内就绪" }
-          Write-Host ("health: " + ($health | ConvertTo-Json -Compress))
-          if (-not $health.frozen) { throw "frozen 标志应为 true" }
-          # 首页占位符必须被重写（不允许 __ASSET_BASE__ 泄漏到产物页面）
+          if (-not $health.success) { throw "health 信封异常: $($health | ConvertTo-Json -Compress)" }
+          if (-not $health.data.frozen) { throw "frozen 标志应为 true" }
+          # 静态托管：SPA 骨架必须含 Vite 构建的 /assets/ 入口，且不再有旧占位符
           $page = (Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:5111/").Content
-          if ($page -match "__ASSET_BASE__") { throw "index.html 占位符未被替换" }
-          # 离线资产必须可取
-          Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:5111/vendor/npm/marked@12.0.0/marked.min.js" -OutFile "$env:TEMP\marked.js" | Out-Null
-          # 端到端执行链：exe 内的执行器需找到本机 python 跑 print(6*7)
-          # （注意：/api/execute 响应即结果对象本身，stdout/exit_code 在顶层）
+          if ($page -match "__ASSET_BASE__") { throw "index.html 残留旧占位符" }
+          if ($page -notmatch '"/assets/') { throw "index.html 未引用 Vite 构建产物" }
+          # 端到端执行链（统一信封：结果在 data 下）
           $exec = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5111/api/execute" `
             -ContentType "application/json" `
             -Body (@{ language = "python"; code = "print(6*7)" } | ConvertTo-Json)
-          Write-Host ("exec stdout: " + $exec.stdout.Trim())
-          if ($exec.stdout.Trim() -ne "42" -or $exec.exit_code -ne 0) { throw "代码执行链路失败" }
+          if (-not $exec.success) { throw "execute 失败: $($exec.error.message)" }
+          if ($exec.data.stdout.Trim() -ne "42" -or $exec.data.exit_code -ne 0) { throw "代码执行链路失败" }
+          # 搜索链路：建笔记 → 检索命中
+          Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5111/api/notes" `
+            -ContentType "application/json" `
+            -Body (@{ name = "ci-smoke.md"; content = "# CI 冒烟`n`n谁在检测鹈鹕" } | ConvertTo-Json) | Out-Null
+          $hits = Invoke-RestMethod "http://127.0.0.1:5111/api/search?q=%E9%B9%88%E9%B9%95"
+          if ($hits.data.results[0].name -ne "ci-smoke.md") { throw "全文检索链路失败" }
           Stop-Process -Name markdown-notebook -Force -ErrorAction SilentlyContinue
 
       - name: Package zip
@@ -67,6 +81,6 @@ jobs:
           files: dist/markdown-notebook-windows-x64.zip
           generate_release_notes: true
           body: |
-            Windows x64 单文件版（免安装 Python）。解压后双击 `markdown-notebook.exe` 即可。
+            Windows x64 单文件版（免安装 Node/Python 构建环境）。解压后双击 `markdown-notebook.exe` 即可。
             运行 Python 代码块需要本机装有 Python（详见压缩包内《使用说明.txt》）。
             上传资产为 `dist/` 里的 zip，若 CI 冒烟未通过则该 tag 不会有产物。

@@ -4,7 +4,11 @@
 
 ■ 这是什么
   单文件桌面级笔记工具：Markdown 笔记中直接嵌代码块，浏览器里一键运行、
-  拖滑块调参、结果写回文档。标准 .md 存储，无数据库、无厂商锁定。
+  拖滑块调参、结果写回文档；🔍 全文搜索（中文分词+高亮）；⚙️ 可配置任意
+  OpenAI 兼容 AI 服务。标准 .md 存储，无数据库、无厂商锁定。
+
+■ 快捷键
+  Shift+Enter 运行光标处代码块 ｜ Ctrl+S 保存 ｜ Ctrl+K 全文搜索
 
 ■ 快速开始（3 步）
   1. 解压本 zip 到任意目录（建议纯英文路径，如 D:\notebook\）
@@ -13,17 +17,20 @@
      → 约 1~3 秒后自动打开浏览器 http://127.0.0.1:5000
   3. 开始使用；关闭控制台窗口即停止服务
 
-■ 运行 Python 代码块的前提
-  本 exe 出于体积考虑未内置 Python 解释器。要运行 Python 代码块，
-  三选一：
-    a) 安装任意 Python 3.x 并勾选 "Add Python to PATH"（推荐，
-       执行时自动隔离运行，不会污染你的环境）
-    b) 设置环境变量 NB_PYTHON 指向 python.exe 的完整路径
-    c) 只跑 JavaScript（需 Node.js）/ Shell 代码块，或改用
-       Docker 沙箱模式（见下），则无需本机 Python
+■ 支持的代码语言（v0.3）
+   Python / JavaScript / Shell / Java / Go 五种。界面底部状态栏有"语言环境灯"
+   （🐍📦💲☕🐹），❌ 表示本机未装对应工具链——运行时会弹出安装引导：
+     · Python 3.x（推荐：装完勾选 Add to PATH；执行自动隔离，不污染环境）
+     · Node.js（JavaScript 块）
+     · JDK 11+（Java 块；公共类必须命名 Main，采用 java Main.java 单文件模式）
+     · Go（Go 块；须含 func main()）
+   也可用环境变量显式指定：NB_PYTHON / NB_JAVA / NB_GO 指向对应可执行文件。
+   不装任何语言环境也能用：编辑、预览、全文搜索、AI 助手均不依赖它们。
 
 ■ 数据在哪里
   · 笔记保存在 exe 同级的 notebooks\ 目录（标准 .md 文件）
+  · 全文搜索索引在 exe 同级 .search_index\（可整目录删除，会自动重建；
+    或在界面 🔍 页签点 🔄 手动重建）
   · 换目录/换电脑 = 整个文件夹拷走即可
   · 想指定别的位置：新建环境变量 NOTEBOOKS_DIR=D:\我的笔记 后重启
   · 端口被占用时：设环境变量 PORT=5001 后重启
@@ -42,7 +49,7 @@
   Q: 杀软报毒？
   A: PyInstaller 单文件 exe 的常见误报（无签名的自解压行为）。
      本产物由 GitHub Actions 公开构建（见 Release 页 workflow 日志），
-     源码完全开放，可自行 clone 后运行 build.bat 重 builds 验证。
+     源码完全开放，可自行 clone 后运行 build.bat 重新构建验证。
   Q: 想开机自启 / 常驻服务？
   A: 把 exe 快捷方式放入 shell:startup，或任务计划程序登录时运行。
 
