@@ -4,11 +4,13 @@ import { escapeHtml } from "../utils/misc";
 
 const TABS = ["notes", "search", "ai"];
 let openNoteCb = null;
+let itemCbs = {};   // rename / export / delete 回调（App 注入）
 
 export const Sidebar = {
-  /** @param {{openNote:Function}} hooks */
+  /** @param {{openNote:Function, renameNote?:Function, exportNote?:Function, deleteNote?:Function}} hooks */
   init(hooks) {
     openNoteCb = hooks.openNote;
+    itemCbs = hooks;
     for (const t of TABS) {
       document.getElementById(`tab-${t}`).addEventListener("click", () => switchTab(t));
     }
@@ -41,9 +43,23 @@ export const Sidebar = {
       li.className = "note-item" + (n.name === state.fileName ? " active" : "");
       li.title = n.name;
       li.innerHTML = `<span class="ico">📄</span><span class="name"></span>` +
-                     `<span class="meta">${escapeHtml(sizeOf(n.size))}</span>`;
+                     `<span class="meta">${escapeHtml(sizeOf(n.size))}</span>` +
+                     `<span class="item-actions">` +
+                       `<button class="btn btn-icon btn-sm" data-act="rename" aria-label="重命名" title="重命名">✏️</button>` +
+                       `<button class="btn btn-icon btn-sm" data-act="export" aria-label="导出下载" title="导出 .md">⬇️</button>` +
+                       `<button class="btn btn-icon btn-sm danger-hover" data-act="delete" aria-label="删除笔记" title="删除">🗑️</button>` +
+                     `</span>`;
       li.querySelector(".name").textContent = n.name;
-      li.addEventListener("click", () => openNoteCb && openNoteCb(n.name));
+      li.addEventListener("click", (e) => {
+        const act = e.target.closest("[data-act]");
+        if (act) {
+          e.stopPropagation();               // 操作按钮不得触发打开笔记（要点·四.1）
+          const fn = itemCbs[act.dataset.act];
+          if (fn) fn(n.name);
+          return;
+        }
+        if (openNoteCb) openNoteCb(n.name);
+      });
       ul.appendChild(li);
     }
   },

@@ -12,5 +12,6 @@ ai_service = AIService(
     api_key=Config.AI_API_KEY,
     model=Config.AI_MODEL,
     timeout=Config.AI_TIMEOUT,
+    notebooks_dir=Config.NOTEBOOKS_DIR,   # 聊天记录与笔记同目录存储（功能五）
 )
 git_service = GitService(Config.NOTEBOOKS_DIR, branch=Config.GIT_BRANCH)

@@ -1,40 +1,33 @@
-/** AI 助手（FR-11）+ 设置弹窗。
+/** AI 助手（FR-11）：对话 + 配置弹窗（功能四）+ 与笔记绑定的聊天记录（功能五）。
  *
- * · ⚙️ 配置 Base URL / 模型 / API Key → localStorage（仅本机），随请求 overrides 透传
- * · 未配置时输入框禁用 + 引导横幅；后端 env 已配置则横幅隐藏（状态栏提示“后端已配置”）
- * · v0.3：走统一信封 API；错误码 AI_NOT_CONFIGURED 直达设置弹窗
+ * · 配置：localStorage（utils/storage），⚙️ 弹窗含明文切换与测试连接
+ * · 未配置时输入框禁用 + 引导横幅；后端 env 已配置则横幅隐藏
+ * · 聊天记录：每次成功问答后 POST /api/ai/chat/<笔记名>；打开笔记时加载恢复；
+ *   🧹 清空前二次确认；随笔记删除/改名由后端自动处理
+ * · v0.3：统一信封 API；错误码 AI_NOT_CONFIGURED 直达设置弹窗
  */
 import { marked } from "marked";
 import hljs from "highlight.js/lib/common";
 
-import { chat } from "../api/ai";
+import { chat, loadChat, saveChat, clearChat } from "../api/ai";
 import { ApiError } from "../api/client";
 import { state } from "../state";
 import { escapeHtml } from "../utils/misc";
+import { loadAiConfig, aiConfigUsable } from "../utils/storage";
+import { confirmModal } from "./Modal";
+import { openAIConfig } from "./AIConfigModal";
 import { setAiStatus, setStatus } from "./StatusBar";
 import { toast } from "./Toast";
 
-const CFG_KEY = "nb.ai.…s";
 const local = { messages: [], busy: false };
 let hintHTML = "";
+let chatNote = "未命名.md";      // 当前聊天记录归属的笔记名
 
-// ---------------- 配置存取 ----------------
-function getCfg() {
-  try { return JSON.parse(localStorage.getItem(CFG_KEY)) || {}; }
-  catch (_) { return {}; }
+function stamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
-function saveCfg(cfg) { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); }
-
-/** base+model 必填；非本机地址还需要 key */
-function usable(cfg) {
-  const base = (cfg.base_url || "").trim();
-  const model = (cfg.model || "").trim();
-  const key = (cfg.api_key || "").trim();
-  if (!base || !model) return false;
-  if (/localhost|127\.0\.0\.1/i.test(base)) return true;
-  return !!key;
-}
-export function isReady() { return usable(getCfg()); }
 
 // ---------------- 初始化 ----------------
 export function init() {
@@ -42,29 +35,6 @@ export function init() {
 
   document.getElementById("btn-ai-settings").addEventListener("click", openSettings);
   document.getElementById("ai-need-key").addEventListener("click", openSettings);
-  document.getElementById("btn-ai-close-modal").addEventListener("click", closeModal);
-  document.getElementById("btn-ai-cancel").addEventListener("click", closeModal);
-  document.getElementById("ai-modal").addEventListener("click", (e) => {
-    if (e.target.id === "ai-modal") closeModal();
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeModal();
-  });
-  document.getElementById("btn-ai-savecfg").addEventListener("click", () => {
-    saveCfg({
-      base_url: document.getElementById("ai-base").value.trim(),
-      model: document.getElementById("ai-model").value.trim(),
-      api_key: document.getElementById("ai-key").value.trim(),
-    });
-    closeModal();
-    refreshGate();
-    setStatus("AI 配置已保存到本浏览器", "flash");
-  });
-  document.getElementById("btn-ai-clearcfg").addEventListener("click", () => {
-    localStorage.removeItem(CFG_KEY);
-    ["ai-base", "ai-model", "ai-key"].forEach((id) => (document.getElementById(id).value = ""));
-    refreshGate();
-  });
 
   document.getElementById("btn-ai-send").addEventListener("click", () =>
     send(document.getElementById("ai-input").value));
@@ -76,15 +46,14 @@ export function init() {
   });
   document.getElementById("btn-ai-summarize").addEventListener("click", () =>
     send("请用要点列表总结下面这份笔记的核心内容。"));
-  document.getElementById("btn-ai-clear").addEventListener("click", () => {
-    local.messages = [];
-    document.getElementById("ai-messages").innerHTML = hintHTML;
-  });
+  document.getElementById("btn-ai-clear").addEventListener("click", clearConversation);
 
   refreshGate();
 }
 
-// ---------------- 配置门槛（置灰/引导） ----------------
+// ---------------- 配置门槛（置灰/引导，功能四验收点） ----------------
+export function isReady() { return aiConfigUsable(loadAiConfig()); }
+
 export function refreshGate() {
   const ready = isReady();
   const backendReady = !!state.aiConfigured && !ready;
@@ -105,15 +74,47 @@ export function refreshGate() {
 }
 
 export function openSettings() {
-  const cfg = getCfg();
-  document.getElementById("ai-base").value = cfg.base_url || "";
-  document.getElementById("ai-model").value = cfg.model || "";
-  document.getElementById("ai-key").value = cfg.api_key || "";
-  document.getElementById("ai-modal").classList.remove("hidden");
-  document.getElementById("ai-base").focus();
+  openAIConfig({ onSaved: refreshGate });
 }
-function closeModal() {
-  document.getElementById("ai-modal").classList.add("hidden");
+
+// ---------------- 聊天记录：加载 / 渲染（功能五） ----------------
+export async function onNoteOpened(name) {
+  const note = name || "未命名.md";
+  chatNote = note;
+  let msgs = [];
+  try {
+    msgs = await loadChat(note);
+  } catch (_) {
+    msgs = [];                     // 后端未启动 / 记录不存在：按空会话处理
+  }
+  if (chatNote !== note) return;   // 加载期间用户又切了笔记：丢弃过期响应
+  local.messages = msgs;
+  renderAll();
+}
+
+/** 笔记换名（首次保存/另存）时迁移聊天记录：旧名读 → 新名写 → 清旧档。 */
+export async function migrateChat(from, to) {
+  if (!from || !to || from === to) return;
+  try {
+    const msgs = await loadChat(from);
+    if (!msgs.length) return;
+    await saveChat(to, msgs);
+    await clearChat(from);
+    if (chatNote === from) chatNote = to;
+  } catch (_) { /* 迁移尽力而为，失败不打断编辑流程 */ }
+}
+
+function renderAll() {
+  const box = document.getElementById("ai-messages");
+  box.innerHTML = "";
+  if (!local.messages.length) {
+    box.innerHTML = hintHTML;
+    return;
+  }
+  for (const m of local.messages) {
+    if (m.role === "user") pushBubble("user", m.content, m.time);
+    else renderBot(pushBubble("bot", "", m.time), m.content);
+  }
 }
 
 // ---------------- 对话 ----------------
@@ -129,28 +130,38 @@ export async function send(prompt) {
   refreshGate();
   document.getElementById("ai-input").value = "";
 
-  pushBubble("user", prompt);
-  local.messages.push({ role: "user", content: prompt });
+  const userMsg = { role: "user", content: prompt, time: stamp() };
+  pushBubble("user", prompt, userMsg.time);
+  local.messages.push(userMsg);
   const pending = pushBubble("bot", '<span class="ai-dots"><span></span><span></span><span></span></span> 思考中…');
 
-  const cfg = getCfg();
+  const cfg = loadAiConfig();
+  const owner = chatNote;
   try {
     const data = await chat({
       messages: local.messages,
       context: state.editor ? state.editor.getValue() : "",
-      ai: usable(cfg) ? { base_url: cfg.base_url, model: cfg.model, api_key: cfg.api_key } : null,
+      ai: aiConfigUsable(cfg) ? { base_url: cfg.base_url, model: cfg.model, api_key: cfg.api_key } : null,
     });
-    local.messages.push({ role: "assistant", content: data.reply });
+    const botMsg = { role: "assistant", content: data.reply, time: stamp() };
+    local.messages.push(botMsg);
     renderBot(pending, data.reply);
+    appendTime(pending, botMsg.time);       // 会话内即时补时间戳（与恢复视图一致）
+    // 追加落盘（后端按 owner 写 <笔记>.ai-chat.json；失败仅提示不打断会话）
+    saveChat(owner, local.messages).catch((err) =>
+      toast(`聊天记录保存失败：${err.message}`, { kind: "err" }));
   } catch (err) {
     local.messages.pop();
+    pending.closest(".ai-bubble").remove(); // 清掉“思考中”占位气泡整体
     if (err instanceof ApiError && err.code === "AI_NOT_CONFIGURED") {
-      pending.innerHTML =
+      const e = pushBubble("bot", "");
+      e.innerHTML =
         `<span class="ai-err">⚠️ ${escapeHtml(err.message)}</span><br/>` +
         `<span class="ai-hint">点 ⚙️ 配置服务地址 / 模型名 / API Key</span>`;
       openSettings();
     } else {
-      pending.innerHTML =
+      const e = pushBubble("bot", "");
+      e.innerHTML =
         `<span class="ai-err">⚠️ ${escapeHtml(err.message || String(err))}</span><br/>` +
         `<span class="ai-hint">点 ⚙️ 检查服务地址 / 模型名 / API Key</span>`;
     }
@@ -160,15 +171,55 @@ export async function send(prompt) {
   }
 }
 
-function pushBubble(role, html) {
+// ---------------- 清空（二次确认，危险操作规范） ----------------
+async function clearConversation() {
+  const yes = await confirmModal({
+    title: "清空聊天记录",
+    message: `确定清空「${chatNote}」的全部聊天记录吗？`,
+    detail: "此操作不可恢复。",
+    confirmText: "清空",
+    danger: true,
+  });
+  if (!yes) return;
+  try {
+    await clearChat(chatNote);
+  } catch (err) {
+    toast(`清空失败：${err.message}`, { kind: "err" });
+    return;
+  }
+  local.messages = [];
+  renderAll();
+  setStatus("聊天记录已清空", "flash");
+}
+
+// ---------------- 气泡渲染 ----------------
+function appendTime(bodyEl, time) {
+  const bubble = bodyEl.closest(".ai-bubble");
+  if (!bubble || bubble.querySelector(".msg-time")) return;
+  const t = document.createElement("span");
+  t.className = "msg-time";
+  t.textContent = time;
+  bubble.appendChild(t);
+}
+
+function pushBubble(role, html, time) {
   const box = document.getElementById("ai-messages");
   const div = document.createElement("div");
   div.className = "ai-bubble " + (role === "user" ? "ai-user" : "ai-bot");
-  if (role === "user") div.textContent = html;
-  else div.innerHTML = html;
+  const body = document.createElement("div");
+  body.className = "ai-body";
+  if (role === "user") body.textContent = html;
+  else body.innerHTML = html;
+  div.appendChild(body);
+  if (time) {
+    const t = document.createElement("span");
+    t.className = "msg-time";
+    t.textContent = time;
+    div.appendChild(t);
+  }
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
-  return div;
+  return body;
 }
 
 function renderBot(el, markdownText) {

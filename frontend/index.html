@@ -16,7 +16,7 @@
     <div class="brand">
       <span class="logo">📓</span>
       <span class="name">可执行笔记</span>
-      <span class="ver">v0.3</span>
+      <span class="ver">v0.3.1</span>
     </div>
 
     <button id="btn-new"  class="btn btn-sm" aria-label="新建笔记" title="新建笔记">＋ 新建</button>
@@ -121,36 +121,7 @@
     </section>
   </div>
 
-  <!-- ============ AI 设置弹窗 ============ -->
-  <div class="modal-backdrop hidden" id="ai-modal">
-    <div class="modal-card">
-      <header>
-        <span>⚙️</span><span>AI 服务配置</span>
-        <button class="x" id="btn-ai-close-modal" aria-label="关闭设置" title="关闭">✕</button>
-      </header>
-      <div class="modal-body">
-        <div class="field">
-          <label>服务地址（OpenAI 兼容 Base URL）</label>
-          <input id="ai-base" type="text" placeholder="https://api.deepseek.com/v1" />
-          <div class="hint">DeepSeek：https://api.deepseek.com/v1 ｜ OpenAI：https://api.openai.com/v1 ｜ Ollama：http://localhost:11434/v1</div>
-        </div>
-        <div class="field">
-          <label>模型名</label>
-          <input id="ai-model" type="text" placeholder="deepseek-chat / gpt-4o-mini / qwen2.5" />
-        </div>
-        <div class="field">
-          <label>API Key</label>
-          <input id="ai-key" type="password" placeholder="sk-…" autocomplete="off" />
-          <div class="hint">仅保存在本浏览器 localStorage，由本机后端代理调用，不会上传第三方。（本地 Ollama 可留空）</div>
-        </div>
-      </div>
-      <div class="modal-foot">
-        <button class="btn btn-sm danger" id="btn-ai-clearcfg">清除已存配置</button>
-        <button class="btn btn-sm" id="btn-ai-cancel">取消</button>
-        <button class="btn btn-sm btn-primary" id="btn-ai-savecfg">保存</button>
-      </div>
-    </div>
-  </div>
+  <!-- ============ AI 设置弹窗：由 components/AIConfigModal.js 基于通用 Modal 动态渲染 ============ -->
 
   <!-- ============ 底部状态栏 ============ -->
   <footer class="statusbar">

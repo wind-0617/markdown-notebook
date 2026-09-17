@@ -11,7 +11,8 @@
 | **交互增强** | 代码块内 `# @param` 声明滑块/下拉框 · 调参自动重跑 · JS/Shell 执行 · 结果内联保存 |
 | **智能增强** | AI 助手（⚙️ 浏览器内配置，问答/总结/生成）· Git 同步 · 文件树 · 加密 |
 | **体验 v0.2** | 深色/浅色主题 · 双页签侧栏 · 三段布局切换 · 自动保存 · 运行状态反馈 · 安全提示 |
-| **架构 v0.3** | **前后端分离**（Vite + Flask 纯 API）· **Whoosh 全文搜索**（中文分词+高亮）· **Java/Go 执行** + 环境探测安装引导 · 统一响应信封 · Toast / Ctrl+K |
+| **架构 v0.3** | **前后端分离**（Vite + Flask 纯 API）· **Whoosh 全文搜索**（中文分词+高亮，可搜文件名）· **Java/Go 执行** + 环境探测安装引导 · 统一响应信封 · Toast / Ctrl+K |
+| **功能 v0.3.1** | **笔记重命名 / 删除 / 导出**（浏览器直接下载 .md）· **AI 连接测试** + Key 明文切换 · **AI 聊天记录持久化**（与笔记同名，随删/改名迁移） |
 
 ## 🧱 技术栈
 
@@ -20,7 +21,7 @@
 - **主题**：自定义 CSS 变量设计系统，深色/浅色一键切换（偏好持久化）
 - **AI**：任意 OpenAI 兼容端点（DeepSeek / GPT / Ollama），浏览器端 ⚙️ 配置
 - **执行语言**：Python / JavaScript / Shell / Java（JDK 11+ 单文件）/ Go
-- **存储**：标准 `.md` 文件 + 本地 Whoosh 索引目录，随时迁移
+- **存储**：标准 `.md` 文件 + 本地 Whoosh 索引目录，随时迁移；AI 聊天记录以 `<笔记>.ai-chat.json` 与笔记同名同目录（不入库）
 
 ## 🚀 快速开始
 
@@ -105,9 +106,10 @@ print(sep.join(str(x) for x in data[:20]))
 │   └── src/
 │       ├── api/          client(信封解析)+notes/execute/search/ai/environment
 │       ├── components/   App/Editor/Preview/Controls/Executor/Sidebar/
-│       │                 SearchPanel/AIPanel/StatusBar/Toast
+│       │                 SearchPanel/AIPanel/AIConfigModal/StatusBar/
+│       │                 Modal(通用弹窗)/Toast
 │       ├── styles/       main.css + markdown.css
-│       └── utils/        misc / shortcuts
+│       └── utils/        misc / shortcuts / storage(localStorage)
 ├── docker/  docs/  packaging/  tools/
 └── run.ps1 / run.sh / run.cmd / build.bat / markdown-notebook.spec
 ```

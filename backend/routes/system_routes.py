@@ -13,7 +13,7 @@ from services import environment
 
 bp = Blueprint("system", __name__)
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 
 
 @bp.get("/api/health")

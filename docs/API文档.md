@@ -4,6 +4,9 @@
 > 开发态走 Vite 代理 `5173 → 5000`）。
 >
 > **v0.3 破坏性变更**：全部响应改为统一信封，旧版裸 JSON 不再兼容。
+>
+> **v0.3.1 增量（向后兼容）**：新增笔记重命名/导出、AI 连接测试、与笔记绑定的
+> 聊天记录读写端点。见 §4、§6。
 
 ## 0. 统一响应信封
 
@@ -23,14 +26,15 @@
 |------|-----------|------|
 | `BAD_REQUEST` | 400 | 参数缺失/非法、请求体非 JSON |
 | `NOT_FOUND` | 404 | 接口不存在、笔记不存在 |
-| `NOTE_NAME_INVALID` | 400 | 文件名不符合白名单（中文/字母/数字/空格/`.()-_`，须 `.md` 结尾） |
-| `NOTE_EXISTS` | 400 | 新建时同名笔记已存在 |
+| `NOTE_NAME_INVALID` | 400 | 文件名不符合白名单（中文/字母/数字/空格/`.()-_`，须 `.md` 结尾）；含 `/ \ ..` 一律显式拒绝（不静默净化） |
+| `NOTE_EXISTS` | 400 | 新建/重命名时目标笔记已存在 |
 | `LANGUAGE_UNSUPPORTED` | 400 | 未注册执行器（`details.languages` 给候选） |
 | `ENVIRONMENT_UNAVAILABLE` | 424 | 本机缺解释器（`details.environment.hint` 给安装引导） |
 | `AI_NOT_CONFIGURED` | 400 | AI 未配置（前端据此弹设置窗） |
 | `AI_UPSTREAM_ERROR` | 502 | AI 上游报错 |
 | `GIT_ERROR` | 400 | Git 操作失败/未初始化 |
 | `SEARCH_ERROR` | 500 | 索引损坏且重建失败等 |
+| `FILE_TOO_LARGE` | 413 | 导出体积超过 10MB 护栏 |
 | `NETWORK` | — | 前端封装层：后端未启动/断连 |
 | `INTERNAL` | 500 | 兜底内部错误 |
 
@@ -120,9 +124,25 @@
 | POST | `/api/notes` | 新建 `{"name","content"?}` | `{"created":true,"name",…}`（201） |
 | PUT | `/api/notes/<name>` | 保存 `{"content"}` | `{"saved":true,"name","size","modified"}` |
 | DELETE | `/api/notes/<name>` | 删除 | `{"deleted":true,"name"}` |
+| POST | `/api/notes/rename` | 重命名 `{"old_path","new_name"}`（`.md` 可省） | `{"renamed":true,"old_name","name"}` |
+| GET | `/api/notes/<name>/export` | 导出下载（**文件流**，非信封） | — 见下 |
 
 响应中的 `name` 为**服务端清洗后的真实文件名**。
-**新建/保存/删除会同步维护搜索索引**（索引故障不影响笔记操作本身）。
+**新建/保存/删除/重命名会同步维护搜索索引**（索引故障不影响笔记操作本身）。
+**删除会一并清除同名 `.ai-chat.json` 聊天记录；重命名会使其跟随迁移**（见 §6）。
+
+### POST /api/notes/rename（功能一）
+
+`new_name` 校验同新建白名单，且**显式拒绝**含 `/ \ ..` 的输入（不做静默 basename 净化，
+避免 `a/b` 被悄悄存成 `b.md` 误导用户）。目标已存在 → `NOTE_EXISTS`；与原名相同 → `BAD_REQUEST`。
+
+### GET /api/notes/<name>/export（功能三）
+
+返回原始 `.md` **字节流**（不做渲染转换，Windows 落盘为 CRLF 原样返回），
+`Content-Disposition: attachment`，中文文件名走 RFC 5987（`filename*=UTF-8''…`）。
+前端用 `<a href=exportNoteUrl download>` 触发下载，**不经 fetch/信封层**。
+体积 > 10MB 返回 `FILE_TOO_LARGE` 信封（413）——故 `<a>` 若命中此分支会跳到错误页，
+正常个人笔记远小于该阈值。
 
 ## 5. 全文检索（九.3，Whoosh）
 
@@ -162,6 +182,30 @@
 
 成功：`data: {"reply": "...", "model": "deepseek-chat"}`
 失败：`AI_NOT_CONFIGURED`(400) / `AI_UPSTREAM_ERROR`(502)。
+
+### POST /api/ai/test（功能四）
+
+请求体同 `/api/ai/chat` 的 `ai` 字段（可空 → 测服务端 env 默认配置）：
+`{"ai": {"base_url","api_key","model"}}`。后端发一条最短消息（20s 超时）验证三件套。
+
+成功：`data: {"message":"连接成功","model","echo"}`；失败：`AI_NOT_CONFIGURED` / `AI_UPSTREAM_ERROR`。
+**不写任何配置**——保存动作始终由前端「保存」按钮完成（localStorage）。
+
+### 聊天记录（功能五）：与笔记绑定
+
+存储：`notebooks/<笔记同名>.ai-chat.json`，结构
+`{"note":"示例笔记.md","messages":[{"role","content","time"}]}`。
+后端校验：role ∈ {user,assistant,system}、内容非空且截断 50k、条数上限 500，非法条目静默过滤。
+
+| 方法 | 路径 | 说明 | `data` |
+|------|------|------|--------|
+| GET | `/api/ai/chat/<note>` | 读取（不存在/损坏返回空列表） | `{"note","messages"}` |
+| POST | `/api/ai/chat/<note>` | 全量保存 `{"messages":[…]}`（原子写；空列表=删除文件） | `{"note","saved":N}` |
+| DELETE | `/api/ai/chat/<note>` | 清空 | `{"note","cleared":true}` |
+
+生命周期联动：**笔记删除 → 记录随之删除；笔记改名 → 记录随之迁移**；
+前端在笔记**首次另存/换名**时把暂挂旧名（如 `未命名.md`）下的会话迁移到新名。
+`.ai-chat.json` 已被 `.gitignore` 显式排除，永不入库。
 
 ## 7. Git 同步（FR-12，阶段三）
 

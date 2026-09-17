@@ -4,6 +4,8 @@
  * （开发态为空串 → 走 Vite 代理；生产态同源由 Flask 托管 dist）。
  */
 const BASE = import.meta.env.VITE_API_BASE_URL || "";
+/** 供非 fetch 场景（如导出下载 <a href>）拼接绝对地址，同样零硬编码。 */
+export const API_BASE = BASE;
 
 export class ApiError extends Error {
   constructor(code, message, details) {

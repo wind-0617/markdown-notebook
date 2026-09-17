@@ -6,6 +6,7 @@ import { setDirty, state } from "../state";
 import { debounce } from "../utils/misc";
 import { bindGlobalShortcuts } from "../utils/shortcuts";
 import * as AIPanel from "./AIPanel";
+import { confirmModal, promptModal } from "./Modal";
 import { Executor } from "./Executor";
 import { Preview, blockAtLine, extractBlocks, applyHljsTheme } from "./Preview";
 import { SearchPanel } from "./SearchPanel";
@@ -22,7 +23,8 @@ export async function boot() {
   applyTheme(getTheme()); // 先上主题，避免闪白
   initLayout();
 
-  Sidebar.init({ openNote });
+  Sidebar.init({ openNote, renameNote: renameNoteFlow, deleteNote: deleteNoteFlow,
+                 exportNote: exportNoteFlow });
   SearchPanel.init({ openNote });
   AIPanel.init();
 
@@ -133,19 +135,23 @@ async function openNote(name) {
     setDirty(false);
     updateFileTab();
     refreshNotes();
+    AIPanel.onNoteOpened(state.fileName);   // 聊天记录与笔记绑定（功能五）
   } catch (err) {
     toast(`打开笔记失败：${err.message}`, { kind: "err" });
   }
 }
 
 async function save(opts = {}) {
-  const name = (state.fileName || "").trim() || "未命名.md";
+  const prev = state.fileName;
+  const name = (prev || "").trim() || "未命名.md";
   try {
     const data = await notesApi.saveNote(name, state.editor.getValue());
     state.fileName = data.name || name;
     setDirty(false);
     if (!opts.silent) setStatus(`已保存 ${state.fileName}`, "flash");
     refreshNotes();
+    // 首次以新名落盘：把暂挂在旧名（如 未命名.md）下的聊天记录迁移过去
+    if (prev !== state.fileName) AIPanel.migrateChat(prev || "未命名.md", state.fileName);
   } catch (err) {
     if (opts.silent) setStatus("自动保存失败：" + err.message, "error");
     else toast(`保存失败：${err.message}`, { kind: "err" });
@@ -163,9 +169,70 @@ async function newNote() {
     setDirty(true);
     updateFileTab();
     refreshNotes();
+    AIPanel.onNoteOpened(file);             // 切到新笔记的（空）会话
   } catch (err) {
     toast(`新建失败：${err.message}`, { kind: "err" });
   }
+}
+
+// ---- 列表项操作：重命名 / 删除 / 导出（功能一/二/三） ----------------
+async function renameNoteFlow(name) {
+  const next = await promptModal({
+    title: "重命名笔记",
+    label: "新文件名（.md 后缀自动补全）",
+    value: name.replace(/\.md$/i, ""),
+    placeholder: "例如：周计划",
+    confirmText: "重命名",
+    help: "仅允许中文、字母、数字、空格与 .()-_；不能与已有笔记重名。",
+  });
+  if (next === null) return;
+  try {
+    const d = await notesApi.renameNote(name, next);
+    if (state.fileName === name) {
+      state.fileName = d.name;              // 当前打开文件：路径引用同步更新
+      updateFileTab();
+      AIPanel.onNoteOpened(d.name);
+    }
+    await refreshNotes();
+    setStatus(`已重命名 ${name} → ${d.name}`, "flash");
+  } catch (err) {
+    toast(`重命名失败：${err.message}`, { kind: "err" });
+  }
+}
+
+async function deleteNoteFlow(name) {
+  const yes = await confirmModal({
+    title: "删除笔记",
+    message: `确定删除「${name}」吗？`,
+    detail: "此操作不可恢复；该笔记的 AI 聊天记录将一并删除。",
+    confirmText: "删除",
+    danger: true,
+  });
+  if (!yes) return;
+  try {
+    await notesApi.deleteNote(name);
+    if (state.fileName === name) {
+      state.fileName = null;
+      state.editor.setValue("");            // 删的是当前笔记：编辑器清空回「未命名」
+      setDirty(false);
+      updateFileTab();
+      AIPanel.onNoteOpened(null);
+    }
+    await refreshNotes();
+    setStatus(`已删除 ${name}`, "flash");
+  } catch (err) {
+    toast(`删除失败：${err.message}`, { kind: "err" });
+  }
+}
+
+function exportNoteFlow(name) {
+  const a = document.createElement("a");
+  a.href = notesApi.exportNoteUrl(name);
+  a.download = name;                        // 兜底文件名；服务端 Content-Disposition 优先
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setStatus(`正在导出 ${name}`, "flash");
 }
 
 // ==================================================================
@@ -173,14 +240,15 @@ async function newNote() {
 // ==================================================================
 function friendlyName(content) {
   const m = /^#\s+(.+?)\s*$/m.exec(content || "");
-  return m ? m[1].trim() : String(state.fileName).replace(/\.md$/i, "");
+  if (m) return m[1].trim();
+  return state.fileName ? state.fileName.replace(/\.md$/i, "") : "未命名";
 }
 function updateFileTab() {
   const name = friendlyName(state.editor ? state.editor.getValue() : "");
   const el = document.getElementById("file-tab-name");
   el.textContent = name;
-  document.getElementById("file-tab").title = `${name}（${state.fileName}）`;
-  setFileName(state.fileName);
+  document.getElementById("file-tab").title = `${name}（${state.fileName || "未命名.md"}）`;
+  setFileName(state.fileName || "未命名.md");
 }
 const updateFileTabDebounced = debounce(() => {
   if (state.editor) updateFileTab();

@@ -74,6 +74,8 @@ ANALYZER = CjkBigramTokenizer()
 
 _SCHEMA = Schema(
     name=ID(stored=True, unique=True),
+    # name 是 ID 整词字段不参与分词，"文件名可搜"需要一个 TEXT 镜像字段
+    name_txt=TEXT(analyzer=ANALYZER),
     title=TEXT(analyzer=ANALYZER, stored=True),
     content=TEXT(analyzer=ANALYZER),
     modified=DATETIME(stored=True, sortable=True),
@@ -98,7 +100,11 @@ class SearchService:
         os.makedirs(self.index_dir, exist_ok=True)
         try:
             if exists_in(self.index_dir):
-                self._ix = open_dir(self.index_dir)
+                ix = open_dir(self.index_dir)
+                # 旧版本索引缺 name_txt：视为过期，推倒重建（升级无感）
+                if "name_txt" not in ix.schema.names():
+                    raise Exception("schema 过期")
+                self._ix = ix
             else:
                 self._ix = create_in(self.index_dir, _SCHEMA)
                 self.rebuild()
@@ -119,13 +125,15 @@ class SearchService:
             self.remove_note(name)
             return
         try:
-            content = open(path, "r", encoding="utf-8", errors="replace").read()
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
         except OSError:
             return
         ix = self._open()          # 先取索引（可能触发重建），再进写锁，避免重入死锁
         with self._lock, ix.writer() as w:
             w.update_document(
                 name=name,
+                name_txt=name,
                 title=_title_of(name, content),
                 content=content,
                 modified=self._file_meta(name),
@@ -149,10 +157,12 @@ class SearchService:
                 path = os.path.join(self.notes_dir, fname)
                 if not os.path.isfile(path):
                     continue
-                content = open(path, "r", encoding="utf-8", errors="replace").read()
+                with open(path, "r", encoding="utf-8", errors="replace") as f:
+                    content = f.read()
                 stat = os.stat(path)
                 w.add_document(
                     name=fname,
+                    name_txt=fname,
                     title=_title_of(fname, content),
                     content=content,
                     modified=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
@@ -166,7 +176,7 @@ class SearchService:
         if not query:
             return []
         ix = self._open()
-        parser = MultifieldParser(["title", "content", "name"], ix.schema, group=OrGroup)
+        parser = MultifieldParser(["title", "content", "name_txt"], ix.schema, group=OrGroup)
         q = parser.parse(query)
         # OrGroup 使所有 token 命中其一即召回（召回优先）；展示按修改时间倒序更直观
         with ix.searcher() as s:
@@ -181,7 +191,8 @@ class SearchService:
                 try:
                     path = os.path.join(self.notes_dir, name)
                     if os.path.isfile(path):
-                        content = open(path, "r", encoding="utf-8", errors="replace").read()
+                        with open(path, "r", encoding="utf-8", errors="replace") as f:
+                            content = f.read()
                 except OSError:
                     pass
                 modified = hit["modified"]

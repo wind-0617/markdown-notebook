@@ -1,7 +1,7 @@
 {
   "name": "markdown-notebook-frontend",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "description": "Markdown 可执行笔记工具 · Vite 前端（原生 ES Modules + Monaco）",
   "scripts": {

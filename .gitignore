@@ -8,6 +8,8 @@ venv/
 # 笔记运行时产物（保留示例笔记）
 backend/notebooks/*
 !backend/notebooks/示例笔记.md
+# AI 聊天记录（与笔记同名派生文件，永不入库；上面已覆盖，显式声明意图）
+*.ai-chat.json
 
 # IDE / OS
 .idea/

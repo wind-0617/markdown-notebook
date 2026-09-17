@@ -168,3 +168,107 @@
   因单文件源码启动需 ≥11）。修复后 exe 内 java 块真实执行输出 42。
   教训：环境探测必须以输出文本为准，验收脚本对"存根/半可用"环境要接受
   424 拦截与执行成功两种合法结局。
+
+---
+
+# v0.3.1 增量功能（2026-09-18 批次）
+
+## [2026-09-18] 功能一：笔记重命名
+- 问题描述：项目只有 .md 的增删改查，笔记改名只能去文件系统手动操作，
+  改完还导致搜索索引与打开标签失同步。
+- 原因分析：note_service 无 rename 原语；改名牵涉三处联动——编辑器标签的
+  路径引用、Whoosh 索引旧条目、该笔记的 AI 聊天记录文件名。
+- 解决方案：后端 `POST /api/notes/rename`（`{old_path,new_name}`，`.md` 自动
+  补全；`os.replace` 原子改名）→ 聊天记录 `rename_chat` 跟随 → 索引
+  remove+index；前端列表项 ✏️ → 通用 promptModal（预填去后缀名、Enter 确认、
+  空值不放行）→ 成功后若命中当前笔记则同步 `state.fileName` 并重载会话。
+- 涉及文件：`backend/services/note_service.py`、`backend/routes/note_routes.py`、
+  `frontend/src/api/notes.js`、`frontend/src/components/Sidebar.js`、
+  `frontend/src/components/Modal.js`、`frontend/src/components/App.js`
+- 备注：校验采取**显式拒绝**而非静默净化——见踩坑实录第 2 条。
+
+## [2026-09-18] 功能二：笔记删除补齐 UI 入口
+- 问题描述：`DELETE /api/notes/<name>` 后端与 `deleteNote()` 前端封装早已存在，
+  但笔记列表没有任何入口，功能"造好即失踪"。
+- 原因分析：v0.3 组件化移植时 UI 规格未列删除，属需求缺口而非技术障碍。
+- 解决方案：列表项悬停 🗑 → `confirmModal`（文案含"不可恢复 + 聊天记录一并
+  删除"，危险红色实心按钮）→ 删除成功后：当前笔记被删则编辑器清空、
+  fileName 归 null、标签回"未命名"、AI 面板切到未命名会话；后端删除时
+  同步清除同名 `.ai-chat.json`。
+- 涉及文件：`frontend/src/components/Sidebar.js`、`Modal.js`、`App.js`、
+  `backend/routes/note_routes.py`、`backend/services/note_service.py`
+- 备注：Windows 下删除刚被搜索/改名触碰的文件偶发 `PermissionError`
+  （杀软瞬时占用），`delete_note` 加 4 次×150ms 重试；详见踩坑第 3 条。
+
+## [2026-09-18] 功能三：导出 .md 浏览器下载
+- 问题描述：无法把笔记取到其他设备/编辑器，只能开文件夹复制。
+- 原因分析：无导出通道；且要兼顾"API 调用统一走 src/api 封装"与
+  "浏览器下载需要真实 URL"的矛盾。
+- 解决方案：后端 `GET /api/notes/<name>/export` 用 `send_from_directory`
+  返回 attachment 文件流（中文名走 RFC 5987 `filename*=UTF-8''…`，浏览器
+  下载名正确），10MB 护栏（`FILE_TOO_LARGE` 413）；前端 `exportNoteUrl()`
+  只**生成地址**（基址仍来自 `API_BASE`，零硬编码），列表项 ⬇️ 用
+  `<a download>` 触发——不解析响应体，天然绕开信封层。
+- 涉及文件：`backend/routes/note_routes.py`、`backend/services/note_service.py`
+  （prepare_export）、`frontend/src/api/client.js`（导出 API_BASE）、
+  `frontend/src/api/notes.js`、`frontend/src/components/App.js`
+- 备注：导出返回磁盘**原始字节**（Windows 落盘 CRLF 即 CRLF），符合
+  "不做任何渲染转换"要求；测试断言须先归一换行再比对。
+
+## [2026-09-18] 功能四：AI 配置弹窗升级（明文切换 + 测试连接）
+- 问题描述：配置弹窗只有保存/清除，用户填完 Key 无法当场验证，往往到
+  真正提问才暴雷；Key 输入框无显示/隐藏切换。
+- 原因分析：v0.3 移植时保留了最小弹窗，验证回路缺失。
+- 解决方案：新增 `POST /api/ai/test`——用传入三件套发一条最短消息
+  （20s 超时），成功回 `{message,model,echo}`；前端弹窗重建于通用 Modal
+  （`AIConfigModal.js`），Key 字段带 👁 明文切换（默认 password）、
+  测试连接按钮带 loading 态与成败 Toast。存储**仍走 localStorage**
+  （封装进 `utils/storage.js`，键名不变零迁移）。
+- 涉及文件：`backend/services/ai_service.py`（test_connection +
+  not_configured 显式标志）、`backend/routes/ai_routes.py`、
+  `frontend/src/components/AIConfigModal.js`（新）、`storage.js`（新）、
+  `AIPanel.js`、`index.html`（移除内联弹窗）
+- 备注：未采用"后端 ai_config.json 存储"方案——个人工具 Key 只应存在
+  用户浏览器或环境变量里，落盘到项目目录会被 Git/网盘/备份顺带带走，
+  风险大于收益。判定口径也随之从严：`AI_NOT_CONFIGURED` 不再靠错误
+  文案猜，改由 `AIResult.not_configured` 显式携带。
+
+## [2026-09-18] 功能五：AI 聊天记录持久化（与笔记绑定）
+- 问题描述：聊天记录只存页面内存，刷新即失；且会话与笔记无关联，
+  换笔记后残留上一篇的上下文。
+- 原因分析：v0.3 面板是纯内存设计；需求方指定"每篇笔记一份对话档"
+  的存储模型。
+- 解决方案：`notebooks/<笔记同名>.ai-chat.json`（原子写 tmp+replace、
+  role/空文/超长过滤、500 条上限）+ GET/POST/DELETE `/api/ai/chat/<note>`
+  三端点；前端打开笔记即加载渲染（含时间戳），每次成功问答后追加落盘，
+  🧹 清空改二次确认；未命名新笔记的会话先挂 `未命名.md`，首次另存/改名时
+  `migrateChat` 读旧-写新-清旧自动搬迁。删除/改名的联动在后端做（数据
+  一致性不依赖前端），`onNoteOpened` 带过期响应守卫防连点竞态。
+- 涉及文件：`backend/services/ai_service.py`（load/save/clear/rename/
+  delete_chat_for_note）、`backend/routes/ai_routes.py`、`backend/deps.py`
+  （注入 notebooks_dir）、`frontend/src/api/ai.js`、`AIPanel.js`、`App.js`、
+  `.gitignore`（显式排除 `*.ai-chat.json`）
+- 备注：记录与笔记**同名派生**而非集中一个大文件——删除/改名/备份的
+  生命周期跟着 .md 走，天然不残留；损坏文件按空会话处理（.md 才是唯一
+  事实源）。
+
+## 踩坑实录（v0.3.1）
+1. **"文件名可搜索"此前并不成立**：schema 里 `name` 是 ID 字段——整词精确、
+   不分词，bigram 查询永远命中不了"重命名后"这种子串（冒烟新用例当场抓出）。
+   修复：加 `name_txt` TEXT 镜像字段进索引与 MultifieldParser；旧索引缺该
+   字段时 `_open()` 检测 `schema.names()` 自动推倒重建（升级无感）。
+   教训：v0.3 文档宣称的能力要用断言钉死，"能搜到中文笔记"≠"能搜文件名"。
+2. **路径校验从"净化"改"拒绝"**：`os.path.basename("x/y\z.md")=="z.md"` 会让
+   非法输入被静默改成另一个合法文件名存储，用户以为改成了 `x/y\z` 实际
+   得到 `z.md`。live 测试撞出来后改为：含 `/ \ ..` 直接 `NOTE_NAME_INVALID`。
+3. **Windows 文件锁三连**：① whoosh 读笔记的 `open().read()` 未加 `with` →
+   删除笔记 PermissionError；② 测试端 `send_from_directory` 的句柄挂在响应
+   上，test_client 不自动 close → 测完即删必炸（真服务器请求结束自释放，
+   产品无恙，测试须 `r.close()`）；③ 杀软瞬时占用 → delete 加短重试。
+4. **冒烟测试必须自隔离**：早期用例直接写进真实 `backend/notebooks`，中断
+   的失败运行在用户笔记里留下 6 个测试残档。现在 `_smoke.py` 在 import app
+   前把 NOTEBOOKS_DIR/SEARCH_INDEX_DIR 指进一次性临时目录——测试数据与
+   用户数据物理隔绝，失败重跑也不会互相污染（本轮"已存在"假故障即为此）。
+5. **PowerShell 客户端发中文的编码陷阱**：`Invoke-RestMethod` 默认不按
+   UTF-8 编码请求体，中文文件名变 `?` 被服务端正则拒——这不是产品 bug，
+   是测试通道问题；涉及中文的 HTTP 联调一律走 Python(urllib)。

@@ -230,6 +230,7 @@ button { font-family: inherit; cursor: pointer; }
   cursor: pointer;
   color: var(--text-dim);
   font-size: 13px;
+  position: relative;
 }
 .note-item:hover { background: var(--bg-hover); color: var(--text); }
 .note-item.active {
@@ -669,3 +670,52 @@ button { font-family: inherit; cursor: pointer; }
   .workspace .sidebar { min-width: 216px; }
   .topbar .brand .name, .topbar .brand .ver { display: none; }
 }
+
+/* ---------- 笔记列表项操作按钮（重命名/导出/删除，功能一二三） ---------- */
+.note-item .meta { flex-shrink: 0; transition: opacity .12s; }
+.item-actions {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity .12s;
+  background: linear-gradient(90deg, transparent, var(--bg-hover) 30%);
+  padding-left: 14px;
+  border-radius: 8px;
+}
+.note-item:hover .item-actions { opacity: 1; }
+.note-item:hover .meta { opacity: 0; }
+.note-item:focus-within .item-actions { opacity: 1; }   /* 键盘可达 */
+.item-actions .btn {
+  width: 24px; height: 24px; font-size: 12px;
+  padding: 0; line-height: 1; background: var(--bg-panel);
+}
+.item-actions .btn:hover { background: var(--bg-hover); outline: 1px solid var(--border); }
+.item-actions .danger-hover:hover { color: var(--err); }
+
+/* ---------- 通用确认弹窗文案 ---------- */
+.confirm-msg { font-size: 13.5px; color: var(--text); line-height: 1.6; }
+.confirm-detail { font-size: 12px; color: var(--text-faint); margin-top: 6px; line-height: 1.5; }
+.btn-danger-solid { background: var(--err); color: #fff; border-color: transparent; }
+.btn-danger-solid:hover { filter: brightness(1.08); background: var(--err); }
+
+/* ---------- AI 配置：Key 明文切换眼睛 ---------- */
+.pw-wrap { position: relative; }
+.pw-wrap input { width: 100%; padding-right: 34px; }
+.pw-wrap .eye {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; cursor: pointer; font-size: 14px;
+  padding: 2px; line-height: 1; color: var(--text-dim);
+}
+.pw-wrap .eye:hover { color: var(--text); }
+
+/* ---------- 聊天气泡结构（body + 时间戳） ---------- */
+.ai-bubble .ai-body { min-width: 0; }
+.ai-bubble .msg-time {
+  display: block; font-size: 10px; color: var(--text-faint);
+  margin-top: 3px; opacity: .8; font-variant-numeric: tabular-nums;
+}
+.ai-user .msg-time { text-align: right; }
